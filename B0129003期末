@@ -1,0 +1,520 @@
+# Flippy (an Othello or Reversi clone)
+# By Al Sweigart al@inventwithpython.com
+# http://inventwithpython.com/pygame
+# Released under a "Simplified BSD" license
+
+# Based on the "reversi.py" code that originally appeared in "Invent
+# Your Own Computer Games with Python", chapter 15:
+#   http://inventwithpython.com/chapter15.html
+
+import random, sys, pygame, time, copy
+from pygame.locals import *
+
+畫面更新 = 10 # frames per second to update the screen(FPS)
+視窗寬度 = 640 # (程式視窗寬度)
+視窗高度 = 480 # height in pixels
+空間大小 = 50 # width & height of each space on the board, in pixels
+板寬 = 8 # (行列格數)
+板高 = 8 
+白子 = '白子' # an arbitrary but unique value
+黑子 = '黑子' # an arbitrary but unique value
+空格 = '空格' # (沒有被下子的空格)
+提示的子 = '提示的子' # (提示後可以下子的空格)
+動畫速度 = 25 # integer from 1 to 100, higher is faster animation
+
+# Amount of space on the left & right side (X軸剩餘邊界) or above and below
+# (Y軸剩餘邊界) the game board, in pixels.
+X軸剩餘邊界 = int((視窗寬度 - (板寬 * 空間大小)) / 2)
+Y軸剩餘邊界 = int((視窗高度 - (板高 * 空間大小)) / 2)
+
+#          紅    綠    藍
+白      = (255, 255, 255)
+黑      = (  0,   0,   0)
+綠      = (  0, 155,   0)
+天藍     = (  0,  50, 255)
+褐      = (174,  94,   0)
+
+背景顏色一 = 天藍
+背景顏色二 = 綠
+網格線顏色 = 黑
+文字顏色 = 白
+提示顏色 = 褐
+
+
+def 主函式():
+    global 主要時鍾, 版面展示, 字體, 大字體, 背景圖片
+
+
+    # (初始化設置)
+    pygame.init()
+    主要時鍾 = pygame.time.Clock()
+    版面展示 = pygame.display.set_mode((視窗寬度, 視窗高度))
+    pygame.display.set_caption('Flippy')
+    字體 = pygame.font.Font('freesansbold.ttf', 16)
+    大字體 = pygame.font.Font('freesansbold.ttf', 32)
+
+    # (設定背景圖片)
+    板面圖片 = pygame.image.load('flippyboard.png')
+    # Use smoothscale() to stretch the board image to fit the entire board:
+    板面圖片 = pygame.transform.smoothscale(板面圖片, (板寬 * 空間大小, 板高 * 空間大小))
+    矩形板面圖片 = 板面圖片.get_rect()
+    矩形板面圖片.topleft = (X軸剩餘邊界, Y軸剩餘邊界)
+    背景圖片 = pygame.image.load('flippybackground.png')
+    # Use smoothscale() to stretch the background image to fit the entire window:
+    背景圖片 = pygame.transform.smoothscale(背景圖片, (視窗寬度, 視窗高度))
+    背景圖片.blit(板面圖片, 矩形板面圖片)
+
+    # (開始遊戲)
+    while True:
+        if 開始遊戲() == False:
+            break
+
+
+def 開始遊戲():
+    # Plays a single game of reversi each time this function is called.
+
+    # (初始化面版和遊戲)
+    遊戲面板 = 取得空白面板()
+    重置面板(遊戲面板)
+    顯示提示 = False
+    輪 = random.choice(['computer', 'player'])
+
+    # (顯示面板讓玩家選顏色)
+    畫面板(遊戲面板)
+    玩家棋子, 電腦棋子 = 輸入玩家棋子()
+
+    # Make the Surface and Rect objects for the "New Game" and "Hints" buttons
+    新遊戲版面 = 字體.render('New Game', True, 文字顏色, 背景顏色二)
+    新遊戲矩形版面 = 新遊戲版面.get_rect()
+    新遊戲矩形版面.topright = (視窗寬度 - 8, 10)
+    提示版面 = 字體.render('Hints', True, 文字顏色, 背景顏色二)
+    提示矩形版面 = 提示版面.get_rect()
+    提示矩形版面.topright = (視窗寬度 - 8, 40)
+
+    while True: # main game loop
+        # Keep looping for player and computer's turns.
+        if 輪 == 'player':
+            # 輪到玩家:
+            if 是有效移動(遊戲面板, 玩家棋子) == []:
+                # If it's the player's turn but they
+                # can't move, then end the game.
+                break
+            移動xy = None
+            while 移動xy == None:
+                # Keep looping until the player clicks on a valid space.
+
+                # Determine which board data structure to use for display.
+                if 顯示提示:
+                    板被畫提示 = 板得到是有效移動的提示(遊戲面板, 玩家棋子)
+                else:
+                    板被畫提示 = 遊戲面板
+
+                檢查是否結束()
+                for 事件 in pygame.event.get(): # event handling loop
+                    if 事件.type == MOUSEBUTTONUP:
+                        # Handle mouse click events (點擊滑鼠)
+                        滑鼠點x, 滑鼠點y = 事件.pos
+                        if 新遊戲矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                            # Start a new game
+                            return True
+                        elif 提示矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                            # Toggle hints mode
+                            顯示提示 = not 顯示提示
+                        # 移動xy is set to a two-item tuple XY coordinate, or None value
+                        移動xy = 取得點擊空格(滑鼠點x, 滑鼠點y)
+                        if 移動xy != None and not 可以有效移動(遊戲面板, 玩家棋子, 移動xy[0], 移動xy[1]):
+                            移動xy = None
+
+                # Draw the game board.
+                畫面板(板被畫提示)
+                畫面板資訊(板被畫提示, 玩家棋子, 電腦棋子, 輪)
+
+                # Draw the "New Game" and "Hints" buttons.
+                版面展示.blit(新遊戲版面, 新遊戲矩形版面)
+                版面展示.blit(提示版面, 提示矩形版面)
+
+                主要時鍾.tick(畫面更新)
+                pygame.display.update()
+
+            # Make the move and end the turn.
+            讓它移動(遊戲面板, 玩家棋子, 移動xy[0], 移動xy[1], True)
+            if 是有效移動(遊戲面板, 電腦棋子) != []:
+                # Only set for the computer's turn if it can make a move.
+                輪 = 'computer'
+
+        else:
+            # 輪到電腦:
+            if 是有效移動(遊戲面板, 電腦棋子) == []:
+                # If it was set to be the computer's turn but
+                # they can't move, then end the game.
+                break
+
+            # Draw the board.
+            畫面板(遊戲面板)
+            畫面板資訊(遊戲面板, 玩家棋子, 電腦棋子, 輪)
+
+            # Draw the "New Game" and "Hints" buttons.
+            版面展示.blit(新遊戲版面, 新遊戲矩形版面)
+            版面展示.blit(提示版面, 提示矩形版面)
+
+            # Make it look like the computer is thinking by pausing a bit.(讓電腦思考)
+            暫停時間 = time.time() + random.randint(5, 15) * 0.1
+            while time.time() < 暫停時間:
+                pygame.display.update()
+
+            # Make the move and end the turn.
+            x, y = 得電腦移動(遊戲面板, 電腦棋子)
+            讓它移動(遊戲面板, 電腦棋子, x, y, True)
+            if 是有效移動(遊戲面板, 玩家棋子) != []:
+                # Only set for the player's turn if they can make a move.
+                輪 = 'player'
+
+    # Display the final score.
+    畫面板(遊戲面板)
+    得分 = 從板子得分數(遊戲面板)
+
+    # Determine the text of the message to display.
+    if 得分[玩家棋子] > 得分[電腦棋子]:
+        文字 = 'You beat the computer by %s points! Congratulations!' % \
+               (得分[玩家棋子] - 得分[電腦棋子])
+    elif 得分[玩家棋子] < 得分[電腦棋子]:
+        文字 = 'You lost. The computer beat you by %s points.' % \
+               (得分[電腦棋子] - 得分[玩家棋子])
+    else:
+        文字 = 'The game was a tie!'
+
+    文字版面 = 字體.render(文字, True, 文字顏色, 背景顏色一)
+    文字矩形版面 = 文字版面.get_rect()
+    文字矩形版面.center = (int(視窗寬度 / 2), int(視窗高度 / 2))
+    版面展示.blit(文字版面, 文字矩形版面)
+
+    # Display the "Play again?" text with Yes and No buttons.
+    文字版面2 = 大字體.render('Play again?', True, 文字顏色, 背景顏色一)
+    文字矩形版面2 = 文字版面2.get_rect()
+    文字矩形版面2.center = (int(視窗寬度 / 2), int(視窗高度 / 2) + 50)
+
+    # Make "Yes" button.
+    文字是版面 = 大字體.render('Yes', True, 文字顏色, 背景顏色一)
+    文字是矩形版面 = 文字是版面.get_rect()
+    文字是矩形版面.center = (int(視窗寬度 / 2) - 60, int(視窗高度 / 2) + 90)
+
+    # Make "No" button.
+    文字否版面 = 大字體.render('No', True, 文字顏色, 背景顏色一)
+    文字否矩形版面 = 文字否版面.get_rect()
+    文字否矩形版面.center = (int(視窗寬度 / 2) + 60, int(視窗高度 / 2) + 90)
+
+    while True:
+        # Process events until the user clicks on Yes or No.
+        檢查是否結束()
+        for 事件 in pygame.event.get(): # event handling loop
+            if 事件.type == MOUSEBUTTONUP:
+                滑鼠點x, 滑鼠點y = 事件.pos
+                if 文字是矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                    return True
+                elif 文字否矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                    return False
+        版面展示.blit(文字版面, 文字矩形版面)
+        版面展示.blit(文字版面2, 文字矩形版面2)
+        版面展示.blit(文字是版面, 文字是矩形版面)
+        版面展示.blit(文字否版面, 文字否矩形版面)
+        pygame.display.update()
+        主要時鍾.tick(畫面更新)
+
+
+def 翻譯面板像素座標(x, y):
+    return X軸剩餘邊界 + x * 空間大小 + int(空間大小 / 2), Y軸剩餘邊界 + y * 空間大小 + int(空間大小 / 2)
+
+
+def 改變移動的棋子(翻動棋子, 棋子顏色, 另一棋子):
+    # Draw the additional tile that was just laid down. (Otherwise we'd
+    # have to completely redraw the board & the board info.)
+    if 棋子顏色 == 白子:
+        另一棋子顏色 = 白
+    else:
+        另一棋子顏色 = 黑
+    另一棋子X, 另一棋子Y = 翻譯面板像素座標(另一棋子[0], 另一棋子[1])
+    pygame.draw.circle(版面展示, 另一棋子顏色, (另一棋子X, 另一棋子Y), int(空間大小 / 2) - 4)
+    pygame.display.update()
+
+    for rgb值 in range(0, 255, int(動畫速度 * 2.55)):
+        if rgb值 > 255:
+            rgb值 = 255
+        elif rgb值 < 0:
+            rgb值 = 0
+
+        if 棋子顏色 == 白子:
+            color = tuple([rgb值] * 3) # rgb值 goes from 0 to 255
+        elif 棋子顏色 == 黑子:
+            color = tuple([255 - rgb值] * 3) # rgb值 goes from 255 to 0
+
+        for x, y in 翻動棋子:
+            中心x, 中心y = 翻譯面板像素座標(x, y)
+            pygame.draw.circle(版面展示, color, (中心x, 中心y), int(空間大小 / 2) - 4)
+        pygame.display.update()
+        主要時鍾.tick(畫面更新)
+        檢查是否結束()
+
+
+def 畫面板(板子):
+    # Draw background of board.
+    版面展示.blit(背景圖片, 背景圖片.get_rect())
+
+    # Draw grid lines of the board.
+    for x in range(板寬 + 1):
+        # Draw the horizontal lines.
+        開始x = (x * 空間大小) + X軸剩餘邊界
+        開始y = Y軸剩餘邊界
+        結束x = (x * 空間大小) + X軸剩餘邊界
+        結束y = Y軸剩餘邊界 + (板高 * 空間大小)
+        pygame.draw.line(版面展示, 網格線顏色, (開始x, 開始y), (結束x, 結束y))
+    for y in range(板高 + 1):
+        # Draw the vertical lines.
+        開始x = X軸剩餘邊界
+        開始y = (y * 空間大小) + Y軸剩餘邊界
+        結束x = X軸剩餘邊界 + (板寬 * 空間大小)
+        結束y = (y * 空間大小) + Y軸剩餘邊界
+        pygame.draw.line(版面展示, 網格線顏色, (開始x, 開始y), (結束x, 結束y))
+
+    # Draw the 黑 & 白 tiles or hint spots.
+    for x in range(板寬):
+        for y in range(板高):
+            中心x, 中心y = 翻譯面板像素座標(x, y)
+            if 板子[x][y] == 白子 or 板子[x][y] == 黑子:
+                if 板子[x][y] == 白子:
+                    棋子顏色 = 白
+                else:
+                    棋子顏色 = 黑
+                pygame.draw.circle(版面展示, 棋子顏色, (中心x, 中心y), int(空間大小 / 2) - 4)
+            if 板子[x][y] == 提示的子:
+                pygame.draw.rect(版面展示, 提示顏色, (中心x - 4, 中心y - 4, 8, 8))
+
+
+def 取得點擊空格(滑鼠點x, 滑鼠點y):
+    # Return a tuple of two integers of the board space coordinates where
+    # the 滑鼠點 was clicked. (Or returns None not in any space.)
+    for x in range(板寬):
+        for y in range(板高):
+            if 滑鼠點x > x * 空間大小 + X軸剩餘邊界 and \
+               滑鼠點x < (x + 1) * 空間大小 + X軸剩餘邊界 and \
+               滑鼠點y > y * 空間大小 + Y軸剩餘邊界 and \
+               滑鼠點y < (y + 1) * 空間大小 + Y軸剩餘邊界:
+                return (x, y)
+    return None
+
+
+def 畫面板資訊(板子, 玩家棋子, 電腦棋子, 輪):
+    # Draws scores and whose 輪 it is at the bottom of the screen.
+    得分 = 從板子得分數(板子)
+    分數面板 = 字體.render("Player Score: %s    Computer Score: %s    %s's Turn" % (str(得分[玩家棋子]), str(得分[電腦棋子]), 輪.title()), True, 文字顏色)
+    分數矩形面板 = 分數面板.get_rect()
+    分數矩形面板.bottomleft = (10, 視窗高度 - 5)
+    版面展示.blit(分數面板, 分數矩形面板)
+
+
+def 重置面板(板子):
+    # Blanks out the 板子 it is passed, and sets up starting tiles.
+    for x in range(板寬):
+        for y in range(板高):
+            板子[x][y] = 空格
+
+    # Add starting pieces to the center
+    板子[3][3] = 白子
+    板子[3][4] = 黑子
+    板子[4][3] = 黑子
+    板子[4][4] = 白子
+
+
+def 取得空白面板():
+    # Creates a brand new, empty board data structure.
+    板子 = []
+    for i in range(板寬):
+        板子.append([空格] * 板高)
+
+    return 板子
+
+
+def 可以有效移動(板子, 棋子, x開始, y開始):
+    # Returns False if the player's move is invalid. If it is a valid
+    # move, returns a list of spaces of the captured pieces.
+    if 板子[x開始][y開始] != 空格 or not 在板子上(x開始, y開始):
+        return False
+
+    板子[x開始][y開始] = 棋子 # temporarily set the tile on the board.
+
+    if 棋子 == 白子:
+        另一棋子 = 黑子
+    else:
+        另一棋子 = 白子
+
+    翻動棋子 = []
+    # check each of the eight directions:
+    for x方向, y方向 in [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]]:
+        x, y = x開始, y開始
+        x += x方向
+        y += y方向
+        if 在板子上(x, y) and 板子[x][y] == 另一棋子:
+            # The piece belongs to the other player next to our piece.
+            x += x方向
+            y += y方向
+            if not 在板子上(x, y):
+                continue
+            while 板子[x][y] == 另一棋子:
+                x += x方向
+                y += y方向
+                if not 在板子上(x, y):
+                    break # break out of while loop, continue in for loop
+            if not 在板子上(x, y):
+                continue
+            if 板子[x][y] == 棋子:
+                # There are pieces to flip over. Go in the reverse
+                # direction until we reach the original space, noting all
+                # the tiles along the way.
+                while True:
+                    x -= x方向
+                    y -= y方向
+                    if x == x開始 and y == y開始:
+                        break
+                    翻動棋子.append([x, y])
+
+    板子[x開始][y開始] = 空格 # make space empty
+    if len(翻動棋子) == 0: # If no tiles flipped, this move is invalid
+        return False
+    return 翻動棋子
+
+
+def 在板子上(x, y):
+    # Returns True if the coordinates are located on the board.
+    return x >= 0 and x < 板寬 and y >= 0 and y < 板高
+
+
+def 板得到是有效移動的提示(板子, 棋子):
+    # Returns a new board with hint markings.
+    dupe板子 = copy.deepcopy(板子)
+
+    for x, y in 是有效移動(dupe板子, 棋子):
+        dupe板子[x][y] = 提示的子
+    return dupe板子
+
+
+def 是有效移動(板子, 棋子):
+    # Returns a list of (x,y) tuples of all valid moves.
+    有效移動們 = []
+
+    for x in range(板寬):
+        for y in range(板高):
+            if 可以有效移動(板子, 棋子, x, y) != False:
+                有效移動們.append((x, y))
+    return 有效移動們
+
+
+def 從板子得分數(板子):
+    # Determine the score by counting the tiles.
+    x分數 = 0
+    o分數 = 0
+    for x in range(板寬):
+        for y in range(板高):
+            if 板子[x][y] == 白子:
+                x分數 += 1
+            if 板子[x][y] == 黑子:
+                o分數 += 1
+    return {白子:x分數, 黑子:o分數}
+
+
+def 輸入玩家棋子():
+    # Draws the text and handles the mouse click events for letting
+    # the player choose which color they want to be.  Returns
+    # [白子, 黑子] if the player chooses to be 白,
+    # [黑子, 白子] if 黑.
+
+    # Create the text.
+    文字版面 = 字體.render('Do you want to be white or black?', True, 文字顏色, 背景顏色一)
+    文字矩形版面 = 文字版面.get_rect()
+    文字矩形版面.center = (int(視窗寬度 / 2), int(視窗高度 / 2))
+
+    x版面 = 大字體.render('white', True, 文字顏色, 背景顏色一)
+    x矩形版面 = x版面.get_rect()
+    x矩形版面.center = (int(視窗寬度 / 2) - 60, int(視窗高度 / 2) + 40)
+
+    o版面 = 大字體.render('black', True, 文字顏色, 背景顏色一)
+    o矩形版面 = o版面.get_rect()
+    o矩形版面.center = (int(視窗寬度 / 2) + 60, int(視窗高度 / 2) + 40)
+
+    while True:
+        # Keep looping until the player has clicked on a color.
+        檢查是否結束()
+        for 事件 in pygame.event.get(): # event handling loop
+            if 事件.type == MOUSEBUTTONUP:
+                滑鼠點x, 滑鼠點y = 事件.pos
+                if x矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                    return [白子, 黑子]
+                elif o矩形版面.collidepoint( (滑鼠點x, 滑鼠點y) ):
+                    return [黑子, 白子]
+
+        # Draw the screen.
+        版面展示.blit(文字版面, 文字矩形版面)
+        版面展示.blit(x版面, x矩形版面)
+        版面展示.blit(o版面, o矩形版面)
+        pygame.display.update()
+        主要時鍾.tick(畫面更新)
+
+
+def 讓它移動(板子, 棋子, x開始, y開始, 實際移動=False):
+    # Place the tile on the board at xstart, ystart, and flip tiles
+    # Returns False if this is an invalid move, True if it is valid.
+    翻動棋子 = 可以有效移動(板子, 棋子, x開始, y開始)
+
+    if 翻動棋子 == False:
+        return False
+
+    板子[x開始][y開始] = 棋子
+
+    if 實際移動:
+        改變移動的棋子(翻動棋子, 棋子, (x開始, y開始))
+
+    for x, y in 翻動棋子:
+        板子[x][y] = 棋子
+    return True
+
+
+def 是在角落(x, y):
+    # Returns True if the position is in one of the four corners.
+    return (x == 0 and y == 0) or \
+           (x == 板寬 and y == 0) or \
+           (x == 0 and y == 板高) or \
+           (x == 板寬 and y == 板高)
+
+
+def 得電腦移動(板子, 電腦棋子):
+    # Given a board and the computer's tile, determine where to
+    # move and return that move as a [x, y] list.
+    可能移動 = 是有效移動(板子, 電腦棋子)
+
+    # randomize the order of the possible moves
+    random.shuffle(可能移動)
+
+    # always go for a corner if available.
+    for x, y in 可能移動:
+        if 是在角落(x, y):
+            return [x, y]
+
+    # Go through all possible moves and remember the best scoring move
+    最佳分數 = -1
+    for x, y in 可能移動:
+        dupe板子 = copy.deepcopy(板子)
+        讓它移動(dupe板子, 電腦棋子, x, y)
+        分數 = 從板子得分數(dupe板子)[電腦棋子]
+        if 分數 > 最佳分數:
+            最佳移動 = [x, y]
+            最佳分數 = 分數
+    return 最佳移動
+
+
+def 檢查是否結束():
+    for 事件 in pygame.event.get((QUIT, KEYUP)): # event handling loop
+        if 事件.type == QUIT or (事件.type == KEYUP and 事件.key == K_ESCAPE):
+            pygame.quit()
+            sys.exit()
+
+
+if __name__ == '__main__':
+    主函式()
